@@ -1,5 +1,6 @@
 <script setup lang="ts">
 definePageMeta({
+  layout: false,
   middleware: 'sanctum:guest', // Prevent logged-in users from seeing this page
 })
 

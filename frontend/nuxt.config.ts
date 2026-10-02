@@ -26,10 +26,10 @@ export default defineNuxtConfig({
       user: '/api/user',
     },
     redirect: {
-      onLogin: '/dashboard',
+      onLogin: '/projects',
       onLogout: '/login',
       onAuthOnly: '/login',
-      onGuestOnly: '/dashboard',
+      onGuestOnly: '/projects',
     },
   },
 })
