@@ -1,4 +1,11 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+// Guard against a scheme-less value (e.g. "api.example.com"): the module would treat it as a
+// relative path and request /projects/api.example.com/api/user from the SPA's own origin.
+const apiBaseUrl = (process.env.NUXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000').trim().replace(/\/+$/, '')
+if (!/^https?:\/\//.test(apiBaseUrl)) {
+  throw new Error(`NUXT_PUBLIC_API_BASE_URL must start with http:// or https:// (got "${apiBaseUrl}")`)
+}
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
@@ -18,7 +25,7 @@ export default defineNuxtConfig({
   // Sanctum module setup for SPA authentication against the Laravel API. The base URL is
   // build-time configurable (NUXT_PUBLIC_API_BASE_URL); it defaults to the local Docker API.
   sanctum: {
-    baseUrl: process.env.NUXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000',
+    baseUrl: apiBaseUrl,
     endpoints: {
       csrf: '/sanctum/csrf-cookie',
       login: '/login',
