@@ -1,0 +1,9 @@
+# Static SPA fallback for the client-side router (Vue Router / Nuxt in `ssr: false` mode).
+# Any request that isn't an existing file or directory (e.g. /projects) is served index.html
+# instead of a 404, so deep links and page refreshes work on Apache hosting.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [L]
+</IfModule>

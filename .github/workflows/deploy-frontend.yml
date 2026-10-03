@@ -1,0 +1,64 @@
+name: Deploy Frontend (Nuxt)
+
+# Manual only — click "Run workflow" in the Actions tab. ci-frontend.yml still builds
+# automatically on every push so you know it builds cleanly.
+#
+# The SPA is built on the runner (`nuxt generate`) and the static files are rsynced to the
+# Hostinger site's document root. See docs/DEPLOYMENT.md for the one-time setup.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag, or commit SHA to deploy'
+        required: false
+        default: 'main'
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check configuration
+        run: |
+          if [ -z "${{ vars.API_BASE_URL }}" ]; then
+            echo "::error::Repository variable API_BASE_URL is not set (e.g. https://api.yourdomain.com)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Generate static build
+        working-directory: frontend
+        run: npm run generate
+        env:
+          # Baked into the static build at generate-time — the deployed API's public origin.
+          NUXT_PUBLIC_API_BASE_URL: ${{ vars.API_BASE_URL }}
+
+      - name: Deploy over rsync/SSH
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          # --delete makes the target an exact mirror of the build, so it must be a directory
+          # used only for this frontend (the site's public_html).
+          switches: -avzr --delete
+          path: frontend/.output/public/
+          remote_path: ${{ vars.HOSTINGER_FRONTEND_PATH }}
+          remote_host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          remote_port: ${{ secrets.HOSTINGER_SSH_PORT }}
+          remote_user: ${{ secrets.HOSTINGER_SSH_USER }}
+          remote_key: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}

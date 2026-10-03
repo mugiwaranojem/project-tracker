@@ -1,0 +1,134 @@
+name: Deploy API (Laravel)
+
+# Manual only — click "Run workflow" in the Actions tab (Branch = usually main, or any ref you
+# want to push to production). ci-api.yml still runs the test suite automatically on every push
+# so you know main is green beforehand.
+#
+# Hostinger shared hosting: the app is built on the runner (composer install --no-dev) and
+# rsynced over SSH, so the server needs neither git nor a working composer. The server's
+# .env and storage/ are never touched. See docs/DEPLOYMENT.md for the one-time setup.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag, or commit SHA to deploy'
+        required: false
+        default: 'main'
+      skip_tests:
+        description: 'Skip the test suite (only for urgent hotfixes or re-deploying an already-tested commit)'
+        type: boolean
+        required: false
+        default: false
+
+# Two deploys at once would fight over the same directory.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  # Runs the full suite on the exact ref being deployed. Ticking "Skip tests" skips this job.
+  test:
+    if: ${{ !inputs.skip_tests }}
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: true
+          MYSQL_DATABASE: project_tracker_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: project_tracker_test
+      DB_USERNAME: root
+      DB_PASSWORD: ''
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, mysqli, bcmath, intl, gd, zip
+          coverage: none
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Configure environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run test suite
+        run: php artisan test
+
+  # `!failure()` lets this run when `test` was skipped (Skip tests ticked) but still blocks the
+  # deploy if `test` actually failed. Without it, a skipped dependency would skip this job too.
+  deploy:
+    needs: test
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    # Shows the target and (if configured under Settings -> Environments) requires a manual
+    # approval click before anything is sent to the server — an extra gate for production.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql, mysqli, bcmath, intl, gd, zip
+          coverage: none
+
+      - name: Install production PHP dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+      - name: Upload code over rsync/SSH
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          # --exclude also protects those paths on the server from --delete, so the server's
+          # .env, storage/ (logs, sessions, uploads) and any public/storage link survive.
+          switches: >-
+            -avzr --delete
+            --exclude=.git/ --exclude=.github/ --exclude=.claude/ --exclude=.agents/
+            --exclude=frontend/ --exclude=node_modules/ --exclude=tests/ --exclude=docker/
+            --exclude=docker-compose.yml --exclude=.dockerignore
+            --exclude=.env --exclude=.env.* --exclude=/storage/
+          path: ./
+          remote_path: ${{ vars.HOSTINGER_API_PATH }}
+          remote_host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          remote_port: ${{ secrets.HOSTINGER_SSH_PORT }}
+          remote_user: ${{ secrets.HOSTINGER_SSH_USER }}
+          remote_key: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+
+      - name: Migrate and cache on the server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ${{ vars.HOSTINGER_API_PATH }}
+            PHP=${{ vars.HOSTINGER_PHP_BIN || 'php' }}
+            $PHP -v | head -1
+            $PHP artisan migrate --force
+            $PHP artisan config:cache
+            $PHP artisan route:cache
+            $PHP artisan view:cache
