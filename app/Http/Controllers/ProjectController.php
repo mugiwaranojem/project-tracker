@@ -7,31 +7,22 @@ use App\Http\Requests\StoreProjectRequest;
 use App\Http\Requests\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
+use App\Repositories\Contracts\ProjectRepositoryInterface;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 
 class ProjectController extends Controller
 {
+    public function __construct(private readonly ProjectRepositoryInterface $projects) {}
+
     public function index(ListProjectsRequest $request): AnonymousResourceCollection
     {
-        $filters = $request->validated();
-
-        $projects = Project::query()
-            ->search($filters['search'] ?? null)
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
-            ->when($filters['priority'] ?? null, fn ($query, $priority) => $query->where('priority', $priority))
-            ->sortBy($filters['sort'] ?? 'created_at', $filters['direction'] ?? 'desc')
-            ->paginate($filters['per_page'] ?? 15)
-            ->withQueryString();
-
-        return ProjectResource::collection($projects);
+        return ProjectResource::collection($this->projects->paginate($request->validated()));
     }
 
     public function store(StoreProjectRequest $request): ProjectResource
     {
-        $project = Project::create($request->validated());
-
-        return new ProjectResource($project);
+        return new ProjectResource($this->projects->create($request->validated()));
     }
 
     public function show(Project $project): ProjectResource
@@ -41,14 +32,12 @@ class ProjectController extends Controller
 
     public function update(UpdateProjectRequest $request, Project $project): ProjectResource
     {
-        $project->update($request->validated());
-
-        return new ProjectResource($project);
+        return new ProjectResource($this->projects->update($project, $request->validated()));
     }
 
     public function destroy(Project $project): Response
     {
-        $project->delete();
+        $this->projects->delete($project);
 
         return response()->noContent();
     }
