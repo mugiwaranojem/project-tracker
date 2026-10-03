@@ -57,6 +57,32 @@ docker compose exec web php artisan migrate:fresh --seed   # reset the database
 - `.env.example` already sets `FRONTEND_URL` and `SANCTUM_STATEFUL_DOMAINS` for `localhost:3000`;
   keep the frontend on that port or update both.
 
+## AI Tools Used
+
+- **Claude** was used throughout: scaffolding the Laravel API and Nuxt frontend, writing tests  development assistance
+- All AI-generated code was reviewed, run and tested by me before being committed.
+
+## Assumptions Made
+
+Where the requirements didn't specify something, I decided:
+
+- **Authentication:** only pre-created users can log in (no public registration). Every `/api/projects` route
+  requires a logged-in user; I used Sanctum cookie (SPA) auth rather than tokens, so the frontend and API
+  share a parent domain (`portal.` / `api.`).
+- **Shared data:** all logged-in users see and manage the same projects. There are no per-user projects or roles.
+- **Project fields:** client name, project name, optional description, status, priority, start date and due date.
+  Client name, project name, status, priority and both dates are required; due date can't be before start date.
+- **Status values:** `planning`, `in_progress`, `on_hold`, `completed` (new projects default to `planning`).
+- **Priority values:** `low`, `medium`, `high` (default `medium`).
+- **List behaviour:** paginated (15 per page, max 100), searchable by client, project name or description,
+  filterable by status and priority, and sortable by any main column. Status and priority sort by logical order,
+  not alphabetically.
+- **Deleting:** a hard delete (no soft delete or archive), with a confirmation dialog in the UI.
+- **Dates:** plain calendar dates with no time or timezone.
+- **Hosting:** Hostinger shared hosting, so deploys are manual, the queue runs synchronously, and the frontend
+  is a static SPA (`ssr: false`).
+- **Seed data:** sample projects and a test user exist for local development only; production gets its own admin user.
+
 ## Deployment
 
 GitHub Actions workflows: [.github/workflows](.github/workflows)
